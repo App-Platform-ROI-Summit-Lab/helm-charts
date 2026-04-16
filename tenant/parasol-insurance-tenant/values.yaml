@@ -1,0 +1,22 @@
+tenant:
+  username: ""
+
+gitlab:
+  host: ""
+
+registry:
+  host: ""
+
+cluster:
+  subdomain: ""
+
+argocd:
+  namespace: openshift-gitops
+
+vault:
+  name: vault
+  namespace: vault
+
+kafka:
+  namespace: kafka
+  clusterName: kafka

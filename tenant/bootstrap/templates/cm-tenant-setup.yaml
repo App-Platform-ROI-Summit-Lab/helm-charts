@@ -1,0 +1,192 @@
+kind: ConfigMap
+metadata:
+  name: {{ include "tenant-bootstrap.name" . }}-setup
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+apiVersion: v1
+data:
+  playbook.yaml: |
+    ---
+    - name: Tenant setup for {{ .Values.tenant.username }}
+      hosts: localhost
+      vars:
+        tenant_username: {{ .Values.tenant.username }}
+        tenant_password: {{ .Values.tenant.password }}
+        gitlab_host: {{ .Values.gitlab.host }}
+      tasks:
+        - name: Retrieve GitLab root token
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: Secret
+            name: root-user-personal-token
+            namespace: gitlab
+          register: r_root_token
+          retries: 30
+          delay: 10
+          until:
+            - r_root_token.resources | length > 0
+            - r_root_token.resources[0].data.token is defined
+
+        - name: Decode root token
+          set_fact:
+            root_token: '{{ "{{" }} r_root_token.resources[0].data.token | b64decode {{ "}}" }}'
+
+        - name: Wait for GitLab API to be available
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} gitlab_host {{ "}}" }}/api/v4/projects
+            method: GET
+            validate_certs: false
+          register: r_liveness
+          retries: 30
+          delay: 10
+          until: r_liveness.status == 200
+
+        - name: Create GitLab user {{ .Values.tenant.username }}
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} gitlab_host {{ "}}" }}/api/v4/users
+            method: POST
+            body_format: form-urlencoded
+            body:
+              admin: false
+              email: "{{ "{{" }} tenant_username {{ "}}" }}@rhdemo.com"
+              public_email: "{{ "{{" }} tenant_username {{ "}}" }}@rhdemo.com"
+              skip_confirmation: true
+              username: "{{ "{{" }} tenant_username {{ "}}" }}"
+              password: "{{ "{{" }} tenant_password {{ "}}" }}"
+              name: "{{ "{{" }} tenant_username {{ "}}" }}"
+            headers:
+              PRIVATE-TOKEN: '{{ "{{" }} root_token {{ "}}" }}'
+            validate_certs: false
+            status_code:
+              - 201
+              - 409
+          register: r_user
+          retries: 10
+          delay: 5
+          until: r_user.status in [201, 409]
+
+        - name: Look up user ID
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} gitlab_host {{ "}}" }}/api/v4/users?username={{ "{{" }} tenant_username {{ "}}" }}
+            method: GET
+            headers:
+              PRIVATE-TOKEN: '{{ "{{" }} root_token {{ "}}" }}'
+            validate_certs: false
+          register: r_user_lookup
+          retries: 10
+          delay: 5
+          until: r_user_lookup.json | length > 0
+
+        - name: Set user ID
+          set_fact:
+            tenant_user_id: '{{ "{{" }} r_user_lookup.json[0].id {{ "}}" }}'
+
+        - name: Create impersonation token for tenant user
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} gitlab_host {{ "}}" }}/api/v4/users/{{ "{{" }} tenant_user_id {{ "}}" }}/impersonation_tokens
+            method: POST
+            body_format: form-urlencoded
+            body:
+              name: tenant-bootstrap
+              scopes: api
+              expires_at: "{{ "{{" }} '%Y-%m-%d' | strftime(ansible_date_time.epoch | int + 2592000) {{ "}}" }}"
+            headers:
+              PRIVATE-TOKEN: '{{ "{{" }} root_token {{ "}}" }}'
+            validate_certs: false
+            status_code:
+              - 201
+              - 409
+          register: r_impersonation_token
+          retries: 10
+          delay: 5
+          until: r_impersonation_token.status in [201, 409]
+
+        - name: Set tenant token from new impersonation token
+          set_fact:
+            tenant_token: '{{ "{{" }} r_impersonation_token.json.token {{ "}}" }}'
+          when: r_impersonation_token.status == 201
+
+        - name: Retrieve existing impersonation tokens
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} gitlab_host {{ "}}" }}/api/v4/users/{{ "{{" }} tenant_user_id {{ "}}" }}/impersonation_tokens?state=active
+            method: GET
+            headers:
+              PRIVATE-TOKEN: '{{ "{{" }} root_token {{ "}}" }}'
+            validate_certs: false
+          register: r_existing_tokens
+          when: r_impersonation_token.status == 409
+
+        - name: Set tenant token from existing impersonation token
+          set_fact:
+            tenant_token: '{{ "{{" }} root_token {{ "}}" }}'
+          when: r_impersonation_token.status == 409
+
+        - name: Fork parasol-insurance to tenant user namespace
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} gitlab_host {{ "}}" }}/api/v4/projects/parasol%2Fparasol-insurance/fork
+            method: POST
+            body_format: form-urlencoded
+            body:
+              namespace_path: "{{ "{{" }} tenant_username {{ "}}" }}"
+              name: parasol-insurance
+              path: parasol-insurance
+            headers:
+              PRIVATE-TOKEN: '{{ "{{" }} root_token {{ "}}" }}'
+            validate_certs: false
+            status_code:
+              - 201
+              - 409
+          register: r_fork_parasol
+          retries: 10
+          delay: 5
+          until: r_fork_parasol.status in [201, 409]
+
+        - name: Fork parasol-insurance-manifests to tenant user namespace
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} gitlab_host {{ "}}" }}/api/v4/projects/parasol%2Fparasol-insurance-manifests/fork
+            method: POST
+            body_format: form-urlencoded
+            body:
+              namespace_path: "{{ "{{" }} tenant_username {{ "}}" }}"
+              name: parasol-insurance-manifests
+              path: parasol-insurance-manifests
+            headers:
+              PRIVATE-TOKEN: '{{ "{{" }} root_token {{ "}}" }}'
+            validate_certs: false
+            status_code:
+              - 201
+              - 409
+          register: r_fork_manifests
+          retries: 10
+          delay: 5
+          until: r_fork_manifests.status in [201, 409]
+
+        - name: Wait for parasol-insurance fork to complete
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} gitlab_host {{ "}}" }}/api/v4/projects/{{ "{{" }} tenant_username {{ "}}" }}%2Fparasol-insurance
+            method: GET
+            headers:
+              PRIVATE-TOKEN: '{{ "{{" }} root_token {{ "}}" }}'
+            validate_certs: false
+            status_code: 200
+          register: r_fork_parasol_check
+          retries: 10
+          delay: 10
+          until:
+            - r_fork_parasol_check.status == 200
+            - r_fork_parasol_check.json.import_status is not defined or r_fork_parasol_check.json.import_status == 'finished' or r_fork_parasol_check.json.import_status == 'none'
+
+        - name: Wait for parasol-insurance-manifests fork to complete
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} gitlab_host {{ "}}" }}/api/v4/projects/{{ "{{" }} tenant_username {{ "}}" }}%2Fparasol-insurance-manifests
+            method: GET
+            headers:
+              PRIVATE-TOKEN: '{{ "{{" }} root_token {{ "}}" }}'
+            validate_certs: false
+            status_code: 200
+          register: r_fork_manifests_check
+          retries: 10
+          delay: 10
+          until:
+            - r_fork_manifests_check.status == 200
+            - r_fork_manifests_check.json.import_status is not defined or r_fork_manifests_check.json.import_status == 'finished' or r_fork_manifests_check.json.import_status == 'none'
