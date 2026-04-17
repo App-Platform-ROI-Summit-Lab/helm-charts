@@ -6,6 +6,3 @@ subscription:
   name: openshift-pipelines-operator-rh
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-
-rhtas:
-  namespace: trusted-artifact-signer

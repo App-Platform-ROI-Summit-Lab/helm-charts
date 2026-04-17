@@ -80,7 +80,7 @@ spec:
               # Enable transparency log upload to the in-cluster Rekor server
               # and deep inspection for per-task details in pipeline attestations.
               oc patch tektonconfig config --type merge \
-                -p '{"spec":{"pipeline":{"coschedule":"pipelineruns"},"chain":{"transparency.enabled":"true","transparency.url":"http://rekor-server.{{ .Values.rhtas.namespace }}.svc","artifacts.pipelinerun.enable-deep-inspection":"true"}}}'
+                -p '{"spec":{"pipeline":{"coschedule":"pipelineruns"}}}'
 
               echo "TektonConfig patched"
           resources:
