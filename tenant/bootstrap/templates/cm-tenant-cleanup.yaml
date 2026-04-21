@@ -61,7 +61,7 @@ data:
             api_version: v1
             kind: Secret
             name: quay-admin-token
-            namespace: quay
+            namespace: quay-registry
           register: r_quay_token
           retries: 10
           delay: 5
