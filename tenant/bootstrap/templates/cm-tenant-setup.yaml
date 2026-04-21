@@ -14,6 +14,8 @@ data:
         tenant_password: {{ .Values.tenant.password }}
         gitlab_host: {{ .Values.gitlab.host }}
         registry_host: {{ .Values.registry.host }}
+        vault_namespace: {{ .Values.vault.namespace }}
+        vault_pod: {{ .Values.vault.name }}-0
       tasks:
         - name: Retrieve GitLab root token
           kubernetes.core.k8s_info:
@@ -177,6 +179,14 @@ data:
             validate_certs: false
             status_code:
               - 200
+
+        - name: Write per-tenant Quay credentials to Vault
+          vars:
+            quay_auth: "{{ "{{" }} tenant_username {{ "}}" }}:{{ "{{" }} tenant_password {{ "}}" }}"
+          kubernetes.core.k8s_exec:
+            namespace: "{{ "{{" }} vault_namespace {{ "}}" }}"
+            pod: "{{ "{{" }} vault_pod {{ "}}" }}"
+            command: 'vault kv put kv/secrets/tenants/{{ "{{" }} tenant_username {{ "}}" }}/quay/auth value={{ "{{" }} quay_auth | b64encode {{ "}}" }}'
 
         - name: Fork parasol-insurance to tenant user namespace
           ansible.builtin.uri:

@@ -14,6 +14,8 @@ data:
         tenant_username: {{ .Values.tenant.username }}
         gitlab_host: {{ .Values.gitlab.host }}
         registry_host: {{ .Values.registry.host }}
+        vault_namespace: {{ .Values.vault.namespace }}
+        vault_pod: {{ .Values.vault.name }}-0
       tasks:
         - name: Retrieve GitLab root token
           kubernetes.core.k8s_info:
@@ -83,3 +85,9 @@ data:
             status_code:
               - 204
               - 404
+
+        - name: Delete per-tenant Quay credentials from Vault
+          kubernetes.core.k8s_exec:
+            namespace: "{{ "{{" }} vault_namespace {{ "}}" }}"
+            pod: "{{ "{{" }} vault_pod {{ "}}" }}"
+            command: 'vault kv delete kv/secrets/tenants/{{ "{{" }} tenant_username {{ "}}" }}/quay/auth'
