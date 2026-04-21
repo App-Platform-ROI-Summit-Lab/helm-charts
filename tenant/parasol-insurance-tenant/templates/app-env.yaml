@@ -26,6 +26,8 @@ spec:
         registry:
           host: {{ $.Values.registry.host }}
           organization: {{ $.Values.tenant.username }}
+        kafka:
+          topic: {{ $prefix }}-intake
         cluster:
           subdomain: {{ $.Values.cluster.subdomain }}
   syncPolicy:
