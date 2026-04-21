@@ -28,6 +28,7 @@ spec:
           host: {{ .Values.gitlab.host }}
         registry:
           host: {{ .Values.registry.host }}
+          organization: {{ .Values.tenant.username }}
         cluster_subdomain: {{ .Values.cluster.subdomain }}
         sonarqube:
           host: "http://sonarqube.sonarqube.svc:9000"

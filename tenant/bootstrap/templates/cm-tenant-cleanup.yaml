@@ -13,6 +13,7 @@ data:
       vars:
         tenant_username: {{ .Values.tenant.username }}
         gitlab_host: {{ .Values.gitlab.host }}
+        registry_host: {{ .Values.registry.host }}
       tasks:
         - name: Retrieve GitLab root token
           kubernetes.core.k8s_info:
@@ -54,3 +55,31 @@ data:
               - 204
               - 404
           when: r_user_lookup.json | length > 0
+
+        - name: Retrieve Quay admin token
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: Secret
+            name: quay-admin-token
+            namespace: quay
+          register: r_quay_token
+          retries: 10
+          delay: 5
+          until:
+            - r_quay_token.resources | length > 0
+            - r_quay_token.resources[0].data.token is defined
+
+        - name: Decode Quay admin token
+          set_fact:
+            quay_admin_token: '{{ "{{" }} r_quay_token.resources[0].data.token | b64decode {{ "}}" }}'
+
+        - name: Delete Quay user {{ .Values.tenant.username }}
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} registry_host {{ "}}" }}/api/v1/superuser/users/{{ "{{" }} tenant_username {{ "}}" }}
+            method: DELETE
+            headers:
+              Authorization: 'Bearer {{ "{{" }} quay_admin_token {{ "}}" }}'
+            validate_certs: false
+            status_code:
+              - 204
+              - 404

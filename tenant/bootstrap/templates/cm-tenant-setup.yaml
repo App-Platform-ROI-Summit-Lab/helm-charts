@@ -13,6 +13,7 @@ data:
         tenant_username: {{ .Values.tenant.username }}
         tenant_password: {{ .Values.tenant.password }}
         gitlab_host: {{ .Values.gitlab.host }}
+        registry_host: {{ .Values.registry.host }}
       tasks:
         - name: Retrieve GitLab root token
           kubernetes.core.k8s_info:
@@ -120,6 +121,62 @@ data:
           set_fact:
             tenant_token: '{{ "{{" }} root_token {{ "}}" }}'
           when: r_impersonation_token.status == 409
+
+        - name: Retrieve Quay admin token
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: Secret
+            name: quay-admin-token
+            namespace: quay
+          register: r_quay_token
+          retries: 10
+          delay: 5
+          until:
+            - r_quay_token.resources | length > 0
+            - r_quay_token.resources[0].data.token is defined
+
+        - name: Decode Quay admin token
+          set_fact:
+            quay_admin_token: '{{ "{{" }} r_quay_token.resources[0].data.token | b64decode {{ "}}" }}'
+
+        - name: Wait for Quay API to be available
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} registry_host {{ "}}" }}/api/v1/discovery
+            method: GET
+            validate_certs: false
+          register: r_quay_liveness
+          retries: 30
+          delay: 10
+          until: r_quay_liveness.status == 200
+
+        - name: Create Quay user {{ .Values.tenant.username }}
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} registry_host {{ "}}" }}/api/v1/superuser/users/
+            method: POST
+            headers:
+              Authorization: 'Bearer {{ "{{" }} quay_admin_token {{ "}}" }}'
+            body:
+              username: "{{ "{{" }} tenant_username {{ "}}" }}"
+              email: "{{ "{{" }} tenant_username {{ "}}" }}@rhdemo.com"
+            body_format: json
+            validate_certs: false
+            status_code:
+              - 200
+              - 400
+          register: r_quay_user
+
+        - name: Set password for Quay user {{ .Values.tenant.username }}
+          ansible.builtin.uri:
+            url: https://{{ "{{" }} registry_host {{ "}}" }}/api/v1/superuser/users/{{ "{{" }} tenant_username {{ "}}" }}
+            method: PUT
+            headers:
+              Authorization: 'Bearer {{ "{{" }} quay_admin_token {{ "}}" }}'
+            body:
+              password: "{{ "{{" }} tenant_password {{ "}}" }}"
+            body_format: json
+            validate_certs: false
+            status_code:
+              - 200
 
         - name: Fork parasol-insurance to tenant user namespace
           ansible.builtin.uri:
