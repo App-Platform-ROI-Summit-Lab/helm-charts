@@ -20,3 +20,20 @@ vault:
 kafka:
   namespace: kafka
   clusterName: kafka
+
+resourceQuota:
+  limits:
+    cpu: "4"
+    memory: 8Gi
+  requests:
+    cpu: "4"
+    memory: 8Gi
+    storage: 50Gi
+
+limitRange:
+  default:
+    cpu: "2"
+    memory: 4Gi
+  defaultRequest:
+    cpu: 250m
+    memory: 128Mi
